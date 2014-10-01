@@ -1,0 +1,18 @@
+mytftpserver -d cesta -a adresa1,port1;adresa2,port2 -t timeout -s velikost -m madresa,mport
+
+    parametr -d
+        cesta určuje absolutní/relativní pracovní adresář, do/z kterého bude server zapisovat/číst, přičemž server bude schopen zohlednit přístupová práva uživatele, který instanci serveru spustil.
+    parametr -s
+        velikost určuje maximální velikost bloku v násobcích oktetů navrženého klientem, který bude server akceptovat a řídit se jím během přenosu.
+    parametr -t
+        timeout v sekundách určuje, jaká je maximální hodnota rozšíření timeout, které je server ochoten akceptovat od klienta.
+    parametr -m
+        madresa,mport určují adresu a port (pokud není uveden, je to implicitně 1758), na kterou se bude server pokoušet odesílat soubory pomocí multicastu. Multicastem bude server šířit ty soubory ve svém pracovním adresáři, které budou mít příponu *.mcast. Pokud parametr -m není přítomen, server odesílá tyto soubory standardně přes unicast.
+    parametr -a
+        adresa je adresa ve formátu IPv4 či IPv6 rozhraní, na němž má služba běžet (pokud není žádná uvedena, tak se implicitně uvažuje IPv4 localhost, tedy 127.0.0.1).
+        port je číslo portu, na kterém server naslouchá (pokud není uveden, je to implicitně 69).
+        N-tic adresaX:portX může být jako vstupních argumentů více s tím, že jsou vzájemně odděleny čárkou. Server díky tomu může naslouchat na více rozhraních, nebo na více adresách na stejném rozhraní (IPv4 a IPv6).
+
+        opcode operation 1 Read request (RRQ) 2 Write request (WRQ) 3 Data (DATA) 4 Acknowledgment (ACK) 5 Error (ERROR)
+        2 bytes     string   1 byte string 1 byte ------------------------------------------------
+        | Opcode | Filename | 0    | Mode | 0 | ------------------------------------------------ Figure 5-1: RRQ/WRQ packet
