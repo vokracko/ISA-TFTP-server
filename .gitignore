@@ -1,0 +1,4 @@
+*.o
+mytftpserver
+*.sublime-workspace
+*.sublime-project
