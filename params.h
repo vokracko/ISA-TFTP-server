@@ -1,22 +1,34 @@
+#ifndef H_PARAMS
+#define H_PARAMS
+
 #include <vector>
+#include <tuple>
 #include <string>
 #include <cstring>
 #include <stdexcept>
-
-
+#include <iostream>
+#include <arpa/inet.h>
+#include <thread>
 
 class Params
 {
 	public:
-		using fullAddr = std::pair<std::string, unsigned short>;
-		using fullAddrVector = std::vector<Params::fullAddr>;
-		std::string dir;
-		std::string addr = "localhost,69";
-		std::string multicast;
-		int size = 0;
-		int timeout = 0;
+		static unsigned short DEFAULT_PORT;
+		static int NOT_SET; // není vytvořen socket
 
-		Params::fullAddrVector parseAddress(std::string & src);
+		using fullAddr = std::tuple<std::string, unsigned short, bool, int, std::thread*>; // adresa, port, ipv6, socket
+		using fullAddrVector = std::vector<Params::fullAddr>;
+		fullAddrVector addresses;
+		std::string dir;
+		std::string addr;
+		int blocksize = 512;
+		int timeout = 3;
+
+		void parseAddresses(std::string src);
+		fullAddr parseAddress(std::string src, unsigned short defaultPort);
 		unsigned int parseInt(const char * ptr);
-		bool paramsSet();
+		bool valid();
+		void print();
 };
+
+#endif

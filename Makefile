@@ -1,9 +1,9 @@
 GPP=g++-4.8
-FLAGS=--std=c++11 -Wall -Wextra
+FLAGS=-std=c++11 -Wall -Wextra -g3
 
 
-build: mytftpserver.o params.o
-	$(GPP) $(FLAGS) -o mytftpserver mytftpserver.o params.o
+build: mytftpserver.o tftpserver.o params.o tftpexception.o tftpclient.o tftpprotocolexception.o
+	$(GPP) $(FLAGS) -o mytftpserver mytftpserver.o tftpserver.o params.o tftpexception.o tftpclient.o tftpprotocolexception.o -pthread
 
 pack:
 	tar xvokra00.tar *.cpp *.h manual.pdf README Makefile
