@@ -3,18 +3,22 @@
 #include "params.h"
 #include "tftpexception.h"
 #include "tftpserver.h"
+#include <signal.h>
 
 
-//TODO ipv6 nefunguje správně bind
-//TODO funguje zatím jen přenášení mini souboru směrem ze serveru
-//TODO netascii mode překládá do vlastního kódu
-//TODO maxblocksize ověření vůči argv a pak podle init paketu, výpis mtu
+//TODO otestovat
+//TODO makefile
+//TODO nefunguje timeout
 
 int main(int argc, char* argv[])
 {
+	std::cout.sync_with_stdio();
+
 	int opt;
 	Params params;
-	TFTPServer server;;
+	TFTPServer server;
+
+	signal(SIGINT, &TFTPServer::terminate);
 
 	try
 	{
@@ -63,8 +67,7 @@ int main(int argc, char* argv[])
 	}
 
 	server.start();
-
-	sleep(10000);
+	server.shutdown();
 
 	return 0;
 

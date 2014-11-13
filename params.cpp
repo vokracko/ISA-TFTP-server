@@ -3,7 +3,6 @@
 unsigned short Params::DEFAULT_PORT = 69;
 int Params::NOT_SET = -1;
 
-
 /**
  * @brief Split src by semicolons
  * @param src source string
@@ -47,6 +46,9 @@ Params::fullAddr Params::parseAddress(std::string src, unsigned short defaultPor
 	sockaddr_in6 addr_ipv6;
 	int result;
 	unsigned short port;
+	char _address[INET6_ADDRSTRLEN] = {0};
+	addrinfo * addr_info;
+
 
 	pos = src.find(',');
 
@@ -60,18 +62,34 @@ Params::fullAddr Params::parseAddress(std::string src, unsigned short defaultPor
 	}
 
 	address = src.substr(0, pos);
+	result = getaddrinfo(address.c_str(), NULL, NULL, &addr_info);
+
+	if(result != 0) throw std::invalid_argument("address");
+
+	if(addr_info->ai_family == AF_INET)
+	{
+		inet_ntop(AF_INET, &((sockaddr_in *) addr_info->ai_addr)->sin_addr, _address, sizeof(_address));
+	}
+	else
+	{
+		inet_ntop(AF_INET6, &((sockaddr_in6 *) addr_info->ai_addr)->sin6_addr, _address, sizeof(_address));
+	}
+
+	freeaddrinfo(addr_info);
+	address = _address;
+
 	result = inet_pton(AF_INET, address.c_str(), &(addr_ipv4.sin_addr));
 
 	if(result == 1)
 	{
-		return fullAddr(address, port, false, Params::NOT_SET, nullptr);
+		return fullAddr(address, port, false, Params::NOT_SET, nullptr, Params::NOT_SET);
 	}
 
 	result = inet_pton(AF_INET6, address.c_str(), &(addr_ipv6.sin6_addr));
 
 	if(result == 1)
 	{
-		return fullAddr(address, port, true, Params::NOT_SET, NULL);
+		return fullAddr(address, port, true, Params::NOT_SET, NULL, Params::NOT_SET);
 	}
 
 	throw std::invalid_argument("address");
@@ -106,7 +124,7 @@ bool Params::valid()
 {
 	if(this->addresses.empty())
 	{
-		fullAddr addr("127.0.0.1", 69, false, Params::NOT_SET, nullptr);
+		fullAddr addr("127.0.0.1", 69, false, Params::NOT_SET, nullptr, Params::NOT_SET);
 		this->addresses.push_back(addr);
 	}
 
@@ -134,11 +152,5 @@ void Params::print()
 	if(this->timeout)
 	{
 		std::cout << "Max. timeout: " << this->timeout << "s" << std::endl;
-	}
-
-	if(this->blocksize)
-	{
-		//TODO Max.blocksize: eth0=1498B, eth1=1024B, lo=1500B
-		std::cout << "Max. blocksize: " << this->blocksize << std::endl;
 	}
 }

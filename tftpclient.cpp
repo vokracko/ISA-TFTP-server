@@ -6,8 +6,10 @@
  * @param inaddr client sockaddr
  * @param buffer first message from client
  * @param socklen size of inaddr
+ * @param params
+ * @param blocksize max blocksize on dev
  */
-TFTPClient::TFTPClient(std::string & address, sockaddr * inaddr, socklen_t socklen, char * buffer, int length)
+TFTPClient::TFTPClient(std::string & address, sockaddr * inaddr, socklen_t socklen, char * buffer, int length, Params params, unsigned int blocksize)
 {
 	unsigned int requiredLength;
 	this->ipv6 = socklen == sizeof(sockaddr_in6);
@@ -18,6 +20,7 @@ TFTPClient::TFTPClient(std::string & address, sockaddr * inaddr, socklen_t sockl
 	try
 	{
 		this->sck = TFTPServer::createSocket(address, 0, ipv6);
+		this->setDefaults(params.timeout, params.blocksize == Params::NOT_SET ? blocksize : params.blocksize, params.dir);
 		requiredLength = this->required(buffer);
 		this->optional(buffer + requiredLength, length - requiredLength);
 	}
@@ -65,11 +68,13 @@ void TFTPClient::saveClientAddress(sockaddr * inaddr, bool ipv6)
  * @brief Set default values from cmd arguments
  * @param timeout max acceptable value
  * @param blocksize max acceptable value
+ * @param dir working directory
  */
-void TFTPClient::setDefaults(int timeout, int blocksize)
+void TFTPClient::setDefaults(int timeout, int blocksize, std::string dir)
 {
 	this->maxBlocksize = blocksize;
 	this->maxTimeout = timeout;
+	this->dir = dir;
 }
 
 /**
@@ -126,23 +131,32 @@ void TFTPClient::error(unsigned short errcode)
 	char msg[2];
 	this->twoByte(errcode, msg);
 	this->message(ERROR, msg, 2);
+	this->debug(std::string("ERROR: ") + std::to_string(errcode));
 }
 
 /**
  * @brief Send ack of options
+ * @param file pointer to netascii file, value of tsize must be changed
  */
- void TFTPClient::oack()
+ void TFTPClient::oack(FILE * file)
 {
 	std::vector<unsigned char> data;
+	int tsize = this->tsize;
 
 	for(optionVector::iterator it = this->options.begin(); it!= this->options.end(); ++it)
 	{
-		std::copy( it->first.begin(), it->first.end(), std::back_inserter(data));
+		std::copy(it->first.begin(), it->first.end(), std::back_inserter(data));
 		data.push_back('\0');
 
 		if(this->opcode == RRQ && it->first == "tsize")
 		{
-			it->second = std::to_string(this->tsize);
+			if(file != NULL)
+			{
+				fseek(file, 0L, SEEK_END);
+				tsize = ftell(file);
+				rewind(file);
+			}
+			it->second = std::to_string(tsize);
 		}
 
 		std::copy( it->second.begin(), it->second.end(), std::back_inserter(data));
@@ -163,17 +177,6 @@ void TFTPClient::message(unsigned short opcode, const void * data, unsigned int 
 
 	this->twoByte(opcode, message);
 	memcpy(message + 2, data, length);
-
-	std::string debugMsg = "sending: opcode=";
-	debugMsg += this->opcode2str(opcode);
-
-	if(opcode != OACK)
-	{
-		debugMsg += ", blockid=";
-		debugMsg += std::to_string(message[3] | message[2] << 8);
-	}
-
-	this->debug(debugMsg);
 
 	sendto(this->sck, message, length + 2, 0, this->inaddr, this->socklen);
 }
@@ -201,7 +204,7 @@ unsigned int TFTPClient::required(const char * data)
 	char filename[512] = {0};
 	char mode[9] = {0}; //netascii, octet
 
-	this->opcode = data[1] | data[0] << 8;
+	this->opcode = ((unsigned char) data[1]) | (unsigned char) data[0] << 8;
 	sscanf(data+2, "%s", filename);
 	sscanf(data+2+strlen(filename)+1, "%s", mode);
 
@@ -224,7 +227,7 @@ unsigned int TFTPClient::required(const char * data)
 		throw TFTPProtocolException(TFTPProtocolException::ILLEGAL);
 	}
 
-	this->filename.assign(filename);
+	this->filename.assign(this->dir).append("/").append(filename);
 
 	std::string debugMsg = this->opcode == RRQ ? "RRQ" : "WRQ";
 	debugMsg += " file=";
@@ -240,9 +243,15 @@ unsigned int TFTPClient::required(const char * data)
  * @brief Print debug info
  * @param msg message
  */
-void TFTPClient::debug(std::string & msg)
+void TFTPClient::debug(std::string msg)
 {
-	std::cout << this->addressPort << " # " << msg << std::endl;
+	std::time_t now = std::time(NULL);
+	tm * info;
+	char buffer[80] = {0};
+
+	info = localtime(&now);
+	strftime(buffer, 80, "%Y-%m-%d %H:%m:%S", info);
+	std::cout << "[" << buffer << "] " << this->addressPort << " # " << msg << std::endl;
 }
 
 /**
@@ -302,6 +311,10 @@ void TFTPClient::optional(char * data, unsigned int length)
 	this->optional(data + substracted, length - substracted);
 }
 
+/**
+ * @brief Value was not defined earlier
+ * @param val value
+ */
 void TFTPClient::isUnique(int val)
 {
 	if(val != UNDEFINED)
@@ -310,26 +323,51 @@ void TFTPClient::isUnique(int val)
 	}
 }
 
+/**
+ * @brief Check if file can be saved
+ */
 void TFTPClient::tryFile()
 {
-	std::ofstream file(this->filename);
+	std::ifstream ifile(this->filename);
+	std::ofstream ofile(this->filename);
 
-	if(!file) //TODO && eneoug space
+	if(ifile)
 	{
-		throw TFTPProtocolException(TFTPProtocolException::EXISTS); // TODO or not access righgt
+		throw TFTPProtocolException(TFTPProtocolException::EXISTS);
 	}
 
+	if(!ofile.good())
+	{
+		throw TFTPProtocolException(TFTPProtocolException::ACCESS);
+	}
 
-	file.close();
+	this->enoughSpace();
 }
+
+/**
+ * @brief Check if there is enough disk space for saving file
+ */
+void TFTPClient::enoughSpace()
+{
+	if(this->tsize != 0) return;
+
+	struct statvfs buf;
+	statvfs(this->dir.c_str(), &buf);
+
+	if(buf.f_bsize * buf.f_bfree <  (unsigned int) this->tsize)
+	{
+		throw TFTPProtocolException(TFTPProtocolException::FULL);
+	}
+}
+
 
 /**
  * @brief Start data packet flow
  */
 void TFTPClient::proceed()
 {
-	if(this->timeout == UNDEFINED) this->setTimeout(this->maxTimeout);
-	if(this->blocksize == UNDEFINED) this->setBlocksize(this->maxBlocksize);
+	if(this->timeout == UNDEFINED) this->setTimeout(3);
+	if(this->blocksize == UNDEFINED) this->setBlocksize(512);
 
 	this->tsizeCheck();
 
@@ -351,12 +389,23 @@ void TFTPClient::proceed()
  */
 void TFTPClient::rrq()
 {
-	std::ifstream file(this->filename);
+	std::FILE * file;
 	unsigned int i = 1;
 	int result;
 	char data[this->blocksize];
 
-	if(!file)
+	this->debug("Sending data");
+
+	if(this->mode == NETASCII)
+	{
+		file = this->toNetascii(this->filename);
+	}
+	else
+	{
+		file = fopen(this->filename.c_str(), "r");
+	}
+
+	if(file == NULL)
 	{
 		throw TFTPProtocolException(TFTPProtocolException::NOTFOUND);
 	}
@@ -365,23 +414,25 @@ void TFTPClient::rrq()
 	{
 		do
 		{
-			this->oack();
+			this->oack(file);
 			result = this->recvAck(0);
 		} while(result == RETRY);
 	}
 
-	while(!file.eof())
+	while(!feof(file))
 	{
-		file.read(data, this->blocksize);
+		result = fread(data, 1, this->blocksize, file);
 
 		do
 		{
-			this->data(i, data,  file.gcount());
+			this->data(i, data, result);
 			result = this->recvAck(i);
 		} while(result == RETRY);
 
 		++i;
 	}
+
+	fclose(file);
 }
 
 /**
@@ -389,13 +440,26 @@ void TFTPClient::rrq()
  */
 void TFTPClient::wrq()
 {
-	std::ofstream file(this->filename);
+	std::FILE * file;
 	unsigned int i = 1;
 	int bytes;
-	char data[this->blocksize + 4] = {0}; // 2B pro tftp hlavičku
+	int result;
+	char data[this->blocksize + 5] = {0}; // 2B pro tftp hlavičku
 
 	this->tryFile();
+
+	if(this->mode == NETASCII)
+	{
+		file = std::tmpfile();
+	}
+	else
+	{
+		file = fopen(this->filename.c_str(), "wb");
+	}
+
 	this->wrqReply(0);
+
+	this->debug("Receiving data");
 
 	do
 	{
@@ -412,21 +476,86 @@ void TFTPClient::wrq()
 
 		} while(bytes == RETRY);
 
-		file.write(data+4, bytes);
+		result = fwrite(data+4, 1, bytes, file);
 		++i;
 
-		if(!file.good())
+		if(result != bytes)
 		{
+			fclose(file);
 			throw TFTPProtocolException(TFTPProtocolException::FULL);
 		}
 
 		if(i == (1 << 16) - 1)
 		{
+			fclose(file);
 			throw TFTPProtocolException(TFTPProtocolException::ACCESS); // překročen maximální počet bloků
 		}
 
-
 	} while(bytes == this->blocksize);
+
+	if(this->mode == NETASCII)
+	{
+		this->fromNetascii(file);
+	}
+
+	fclose(file);
+}
+
+/**
+ * @brief Netascii to machine format
+ * @param in temporary file in netascii encoding
+ */
+void TFTPClient::fromNetascii(std::FILE * in)
+{
+	std::ofstream out(this->filename);
+	std::string line;
+	std::size_t pos = 0;
+	int c;
+
+	while((c = fgetc(in)) != EOF)
+	{
+		if(c == '\n' && line.length() && line.back() == '\r')
+		{
+			line.pop_back();
+
+			while((pos = line.find("\r\0", pos)) != std::string::npos)
+			{
+				line.replace(pos, 2, "\r");
+				pos++;
+			}
+
+			out << line << std::endl;
+			line.clear();
+		}
+		else
+		{
+			line.push_back(c);
+		}
+	}
+}
+
+/**
+ * @brief Convert machine format to netascii tmp file
+ * @param name filename
+ * @return file descriptor to tmp file
+ */
+std::FILE * TFTPClient::toNetascii(std::string name)
+{
+	std::FILE * out = std::tmpfile();
+	std::ifstream in(name);
+	std::string line;
+	std::size_t pos = 0;
+
+	while(getline(in, line, '\n'))
+	{
+		while((pos = line.find('\r', pos)) != std::string::npos)
+		{
+			line.replace(pos, 1, "\r\0");
+			pos++;
+		}
+	}
+
+	return out;
 }
 
 void TFTPClient::wrqReply(unsigned int i)
@@ -497,7 +626,7 @@ int TFTPClient::recv(char * data, unsigned int length, unsigned short opcode, un
 	do
 	{	// skip everything which was not send by original client
 		bytes = recvfrom(this->sck, data, length, 0, sockptr, &this->socklen);
-	} while(memcmp(this->inaddr, sockptr, this->socklen) != 0);
+	} while(bytes >= 4 && memcmp(this->inaddr, sockptr, this->socklen) != 0);
 
 	if(bytes == ETIMEDOUT)
 	{
@@ -508,20 +637,13 @@ int TFTPClient::recv(char * data, unsigned int length, unsigned short opcode, un
 		throw TFTPProtocolException(TFTPProtocolException::ILLEGAL);
 	}
 
-
-	opcoderecv = data[0] << 8 | data[1];
-	blockidrecv = data[2] << 8 | data[3];
+	opcoderecv = ((unsigned char) data[0]) << 8 | (unsigned char) data[1];
+	blockidrecv = ((unsigned char) data[2]) << 8 | (unsigned char) data[3];
 
 	if(opcode == ERROR || opcode != opcoderecv || blockid != blockidrecv)
 	{
 		throw TFTPProtocolException(TFTPProtocolException::ILLEGAL);
 	}
-
-	std::string debugMsg = "receiving: opcode=";
-	debugMsg += this->opcode2str(opcode);
-	debugMsg += ", blockid=";
-	debugMsg += std::to_string(blockid);
-	this->debug(debugMsg);
 
 	return bytes;
 }
@@ -586,7 +708,6 @@ void TFTPClient::setTsize(int tsize)
 
 	if(this->opcode == WRQ) // size of file to be writted
 	{
-		// TODO check disk space
 		this->tsize = tsize;
 	}
 	else // RRQ, size of file which will be send to client
@@ -602,9 +723,10 @@ void TFTPClient::setTsize(int tsize)
 int TFTPClient::setBlocksize(int blocksize)
 {
 	this->isUnique(this->blocksize);
+
 	this->blocksize = blocksize;
 
-	if(this->blocksize < 8 || this->blocksize > 65464)
+	if(this->blocksize < 8 || this->blocksize > TFTPServer::MAX_BLOCKSIZE)
 	{
 		throw TFTPProtocolException(TFTPProtocolException::OPTION);
 	}
@@ -631,13 +753,12 @@ int TFTPClient::filesize(std::string & filename)
 		throw TFTPProtocolException(TFTPProtocolException::NOTFOUND);
 	}
 
-	file.close();
-
 	return file.tellg();
 }
 
 void TFTPClient::tsizeCheck()
 {
+	if(this->opcode == WRQ && this->tsize == UNDEFINED) return; // WRQ and no tsize option
 	if(this->tsize == UNDEFINED) this->tsize = this->filesize(this->filename);
 
 	if(this->tsize > (1 << 16) * this->blocksize)

@@ -10,6 +10,11 @@ class TFTPClient;
 #include <vector>
 #include <string>
 #include <fstream>
+#include <sys/statvfs.h>
+#include <sys/socket.h>
+#include <iomanip>
+#include <ctime>
+#include "params.h"
 
 class TFTPClient
 {
@@ -43,6 +48,7 @@ class TFTPClient
 	int maxTimeout;
 	unsigned short opcode;
 	std::string filename;
+	std::string dir;
 
 	optionVector options;
 	bool failed = false;
@@ -50,15 +56,18 @@ class TFTPClient
 	std::string addressPort;
 
 	public:
-		TFTPClient(std::string & address, sockaddr * inaddr, socklen_t socklen, char * buffer, int length);
+		TFTPClient(std::string & address, sockaddr * inaddr, socklen_t socklen, char * buffer, int length, Params params, unsigned int blocksize);
 		~TFTPClient();
 		void work();
-		void setDefaults(int timeout, int blocksize);
+		void setDefaults(int timeout, int blocksize, std::string dir);
 
 	private:
 		void tsizeCheck();
+		std::FILE * toNetascii(std::string name);
+		void fromNetascii(std::FILE * in);
+		void enoughSpace();
 		std::string opcode2str(unsigned short opcode);
-		void debug(std::string & msg);
+		void debug(std::string msg);
 		void strtolower(char * str);
 		void saveClientAddress(sockaddr * inaddr, bool ipv6);
 		int recvAck(unsigned int blockid);
@@ -71,7 +80,7 @@ class TFTPClient
 		void setTsize(int tsize);
 		int filesize(std::string & filename);
 		void message(unsigned short opcode, const void * data, unsigned int length);
-		void oack();
+		void oack(FILE * file = NULL);
 		void error(unsigned short errcode);
 		void ack(unsigned short blockid);
 		void data(unsigned short blockid, const char * data, unsigned int length);

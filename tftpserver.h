@@ -16,13 +16,21 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <sys/types.h>
+#include <ifaddrs.h>
+#include <map>
+#include <mutex>
 
 class TFTPServer
 {
-	Params params;
+	static Params params;
+	static std::mutex shutdownLock;
 	std::mutex mainLock;
 	std::mutex clientLock;
 	unsigned int clientCount = 0;
+
+	public:
+		static const int MAX_BLOCKSIZE;
 
 	private:
 		void socketListen(Params::fullAddr addr);
@@ -31,14 +39,13 @@ class TFTPServer
 
 	public:
 		static int createSocket(std::string & address, unsigned short port, bool ipv6);
+		static void terminate(int sig);
 
 		TFTPServer();
 		~TFTPServer();
 		void configure(Params & params);
-		void shutdown();
 		void start();
+		void shutdown();
 };
 
 #endif
-
-//TODO vymyslet jak ukončovat
