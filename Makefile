@@ -6,7 +6,7 @@ build: mytftpserver.o tftpserver.o params.o tftpexception.o tftpclient.o tftppro
 	$(GPP) $(FLAGS) -o mytftpserver mytftpserver.o tftpserver.o params.o tftpexception.o tftpclient.o tftpprotocolexception.o -pthread
 
 pack: clean
-	tar xvokra00.tar *.cpp *.h manual.pdf README Makefile
+	tar -cf xvokra00.tar *.cpp *.h manual.pdf README Makefile
 
 clean:
 	rm -rf *.o mytftpserver 2 > /dev/null
