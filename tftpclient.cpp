@@ -104,11 +104,13 @@ void TFTPClient::work()
  */
 void TFTPClient::data(unsigned short blockid, const char * data, unsigned int length)
 {
-	char output[length + 2] = {0};
+	char * output = new char[length + 2];
+	memset(output, 0, length + 2);
 
 	this->twoByte(blockid, output);
 	memcpy(output+2, data, length);
 	this->message(DATA, output, length + 2);
+	delete[] output;
 }
 
 /**
@@ -173,12 +175,14 @@ void TFTPClient::error(unsigned short errcode)
  */
 void TFTPClient::message(unsigned short opcode, const void * data, unsigned int length)
 {
-	char message[length+2] = {0};
+	char * message = new char[length+2];
+	memset(message, 0, length + 2);
 
 	this->twoByte(opcode, message);
 	memcpy(message + 2, data, length);
 
 	sendto(this->sck, message, length + 2, 0, this->inaddr, this->socklen);
+	delete[] message;
 }
 
 /**
@@ -444,7 +448,8 @@ void TFTPClient::wrq()
 	unsigned int i = 1;
 	int bytes;
 	int result;
-	char data[this->blocksize + 5] = {0}; // 2B pro tftp hlavičku
+	char * data = new char[this->blocksize + 5];
+	memset(data, 0, this->blocksize + 5);
 
 	this->tryFile();
 
@@ -499,6 +504,8 @@ void TFTPClient::wrq()
 	}
 
 	fclose(file);
+
+	delete[] data;
 }
 
 /**
