@@ -6,9 +6,14 @@
 #include <signal.h>
 
 
-//TODO otestovat
-//TODO makefile
-//TODO nefunguje timeout
+void printHelp()
+{
+	std::cout << "mytftpserver -d cesta [-a adresa1,port1;adresa2,port2 -t timeout -s velikost]" << std::endl;
+    std::cout << "\t-d pracovní adresář" << std::endl;
+    std::cout << "\t-s blocksize" << std::endl;
+    std::cout << "\t-t timeout" << std::endl;
+    std::cout << "\t-a adresa" << std::endl;
+}
 
 int main(int argc, char* argv[])
 {
@@ -41,6 +46,9 @@ int main(int argc, char* argv[])
 				case 't': // timeout
 					params.timeout = params.parseInt(optarg);
 					break;
+				default:
+					printHelp();
+					return 0;
 			}
 		}
 		server.configure(params);
@@ -48,6 +56,7 @@ int main(int argc, char* argv[])
 	} catch(std::invalid_argument & e)
 	{
 		std::cerr << "Invalid argument: " << e.what() << std::endl;
+		printHelp();
 		return 1;
 
 	} catch(std::out_of_range & e)
@@ -60,6 +69,10 @@ int main(int argc, char* argv[])
 		if(e.getCode() == TFTPException::SOCKET)
 		{
 			server.shutdown();
+		}
+		else
+		{
+			printHelp();
 		}
 
 		std::cerr << e.what() << std::endl;
